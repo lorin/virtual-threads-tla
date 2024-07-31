@@ -24,7 +24,7 @@ IsScheduled(thread) == schedule[thread] # NULL
 Init == /\ lockQueue = <<>>
            \* virutal threads are initially unscheduled, OS threads are scheduled to themselves
         /\ schedule = [t \in WorkThreads |-> IF t \in VirtualThreads THEN NULL ELSE t]
-        /\ state = [WorkThreads |-> "ready"]
+        /\ state = [t \in WorkThreads |-> "ready"]
         /\ pinned = {} 
         /\ inSyncBlock = {}
         
@@ -40,7 +40,7 @@ Dispatch(virtual, carrier) ==
        /\ schedule' = IF \E t \in VirtualThreads : schedule[t] = carrier 
                       THEN [schedule EXCEPT ![virtual]=carrier, ![prev]=NULL]
                       ELSE [schedule EXCEPT ![virtual]=carrier]
-       /\ UNCHANGED <<lockQueue, state, pinned>>
+       /\ UNCHANGED <<lockQueue, state, pinned, inSyncBlock>>
 
 
 \* We only care about virtual threads entering synchronized blocks
@@ -50,20 +50,21 @@ EnterSynchronizedBlock(virtual) ==
     /\ pinned' = pinned \union {schedule[virtual]}
     /\ inSyncBlock' = inSyncBlock \union {virtual}
     /\ state' = [state EXCEPT ![virtual]="synced"]
+    /\ UNCHANGED <<lockQueue, schedule>>
 
 RequestLock(thread) == 
     /\ state[thread] \in {"ready", "synced"}
     /\ IsScheduled(thread)
     /\ lockQueue' = Append(lockQueue, thread)
     /\ state' = [state EXCEPT ![thread]="requested"]
-    /\ UNCHANGED pinned
+    /\ UNCHANGED <<pinned, inSyncBlock, schedule>>
 
 AcquireLock(thread) ==
     /\ state[thread] = "requested"
     /\ IsScheduled(thread)
     /\ Head(lockQueue) = thread
     /\ state' = [state EXCEPT ![thread]="locked"]
-    /\ UNCHANGED <<lockQueue, pinned>>
+    /\ UNCHANGED <<lockQueue, pinned, inSyncBlock, schedule>>
 
 
 ReleaseLock(thread) ==
