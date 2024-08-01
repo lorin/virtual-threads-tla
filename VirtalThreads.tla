@@ -1,7 +1,9 @@
 ---- MODULE VirtalThreads ----
-EXTENDS TLC, Naturals, Sequences
+EXTENDS TLC, Sequences
 
-CONSTANTS PoolSize, NumVirtualThreads, NumExtraOsThreads
+CONSTANTS VirtualThreads,
+          CarrierThreads,
+          OsWorkThreads
 
 VARIABLES lockQueue, 
           state, 
@@ -9,19 +11,11 @@ VARIABLES lockQueue,
           pinned, \* pinned OS threads in the pool
           inSyncBlock
 
-NumOsThreads == PoolSize + NumExtraOsThreads
 
-NumWorkThreads == NumVirtualThreads + NumExtraOsThreads
-
-NumThreads == PoolSize + NumVirtualThreads + NumExtraOsThreads
-
-VirtualThreads == (NumOsThreads+1)..NumThreads
-PoolThreads == 1..PoolSize
-OsWorkThreads == (PoolSize+1) .. NumOsThreads
 WorkThreads == VirtualThreads \union OsWorkThreads
 
 
-NULL == CHOOSE x : x \notin PoolThreads
+NULL == CHOOSE x : x \notin CarrierThreads
 
 IsScheduled(thread) == schedule[thread] # NULL
 
@@ -35,7 +29,7 @@ Init == /\ lockQueue = <<>>
         
 TypeOk == /\ schedule \in Seq(WorkThreads)
           /\ state \in [WorkThreads -> {"ready", "synced", "requested", "locked", "to-desync"}]
-          /\ pinned \subseteq PoolThreads
+          /\ pinned \subseteq CarrierThreads
           /\ inSyncBlock \subseteq VirtualThreads
 
 \* Dispatch a virtual thread to a carrier thread, bumping the other thread
@@ -92,7 +86,7 @@ ExitSynchronizedBlock(virtual) ==
     /\ UNCHANGED <<lockQueue, schedule>>
 
 
-Next == \/ \E v \in VirtualThreads, p \in PoolThreads : Dispatch(v, p)
+Next == \/ \E v \in VirtualThreads, p \in CarrierThreads : Dispatch(v, p)
         \/ \E t \in VirtualThreads : \/ EnterSynchronizedBlock(t)
                                      \/ ExitSynchronizedBlock(t)
         \/ \E t \in WorkThreads : \/ RequestLock(t)
