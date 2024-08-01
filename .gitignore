@@ -1,6 +1,5 @@
 *.toolbox
 *.out
-*.cfg
 .vscode
 states/*
 
