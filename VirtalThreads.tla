@@ -37,10 +37,10 @@ Init == /\ lockQueue = <<>>
         /\ inSyncBlock = {}
         
 
-\* Dispatch a virtual thread to a carrier thread, bumping the other thread
+\* Mount a virtual thread to a carrier thread, bumping the other thread
 \* We can only do this when the carrier is not pinned, and when the virtual threads is not already pinned
 \* We need to unschedule the previous thread
-Dispatch(virtual, carrier) ==
+Mount(virtual, carrier) ==
     LET prev == CHOOSE t \in VirtualThreads : schedule[t] = carrier
     IN /\ carrier \notin pinned
        /\ \/ schedule[virtual] = NULL 
@@ -91,7 +91,7 @@ ExitSynchronizedBlock(virtual) ==
     /\ UNCHANGED <<lockQueue, schedule>>
 
 
-Next == \/ \E v \in VirtualThreads, p \in CarrierThreads : Dispatch(v, p)
+Next == \/ \E v \in VirtualThreads, p \in CarrierThreads : Mount(v, p)
         \/ \E t \in VirtualThreads : \/ EnterSynchronizedBlock(t)
                                      \/ ExitSynchronizedBlock(t)
         \/ \E t \in WorkThreads : \/ RequestLock(t)
