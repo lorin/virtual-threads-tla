@@ -19,11 +19,10 @@ VARIABLES lockQueue,
 
 
 TypeOk == /\ lockQueue \in Seq(WorkThreads)
-          /\ state \in [WorkThreads -> {"ready", "synced", "requested", "locked", "to-desync"}]
+          /\ state \in [WorkThreads -> {"ready", "to-enter-sync", "requested", "locked", "to-exit-sync"}]
           /\ schedule \in [WorkThreads -> PlatformThreads \union {NULL}]
           /\ pinned \subseteq CarrierThreads
           /\ inSyncBlock \subseteq VirtualThreads
-
 
 
 IsScheduled(thread) == schedule[thread] # NULL
@@ -37,10 +36,10 @@ Init == /\ lockQueue = <<>>
         /\ inSyncBlock = {}
         
 
-\* Schedule a virtual thread to a carrier thread, bumping the other thread
+\* Mount a virtual thread to a carrier thread, bumping the other thread
 \* We can only do this when the carrier is not pinned, and when the virtual threads is not already pinned
 \* We need to unschedule the previous thread
-Schedule(virtual, carrier) ==
+Mount(virtual, carrier) ==
     LET prev == CHOOSE t \in VirtualThreads : schedule[t] = carrier
     IN /\ carrier \notin pinned
        /\ \/ schedule[virtual] = NULL 
@@ -51,17 +50,26 @@ Schedule(virtual, carrier) ==
        /\ UNCHANGED <<lockQueue, state, pinned, inSyncBlock>>
 
 
+\* When this fires, virtual thread enters a synchronized block
+ChooseToEnterSynchronizedBlock(virtual) ==
+    /\ state[virtual] = "ready"
+    /\ IsScheduled(virtual)
+    /\ virtual \notin inSyncBlock
+    /\ state' = [state EXCEPT ![virtual]="to-enter-sync"]
+    /\ UNCHANGED <<lockQueue, schedule, pinned, inSyncBlock>>
+
+
 \* We only care about virtual threads entering synchronized blocks
 EnterSynchronizedBlock(virtual) ==
-    /\ state[virtual] = "ready"
+    /\ state[virtual] = "to-enter-sync"
     /\ IsScheduled(virtual)
     /\ pinned' = pinned \union {schedule[virtual]}
     /\ inSyncBlock' = inSyncBlock \union {virtual}
-    /\ state' = [state EXCEPT ![virtual]="synced"]
+    /\ state' = [state EXCEPT ![virtual]="ready"]
     /\ UNCHANGED <<lockQueue, schedule>>
 
 RequestLock(thread) == 
-    /\ state[thread] \in {"ready", "synced"}
+    /\ state[thread] = "ready"
     /\ IsScheduled(thread)
     /\ lockQueue' = Append(lockQueue, thread)
     /\ state' = [state EXCEPT ![thread]="requested"]
@@ -79,11 +87,11 @@ ReleaseLock(thread) ==
     /\ state[thread] = "locked"
     /\ IsScheduled(thread)
     /\ lockQueue' = Tail(lockQueue)
-    /\ state' = [state EXCEPT ![thread]=IF thread \in inSyncBlock THEN "to-desync" ELSE "ready"]
+    /\ state' = [state EXCEPT ![thread]=IF thread \in inSyncBlock THEN "to-exit-sync" ELSE "ready"]
     /\ UNCHANGED <<pinned, inSyncBlock, schedule>>
 
 ExitSynchronizedBlock(virtual) ==
-    /\ state[virtual] = "to-desync"
+    /\ state[virtual] = "to-exit-sync"
     /\ IsScheduled(virtual)
     /\ pinned' = pinned \ {schedule[virtual]}
     /\ inSyncBlock' = inSyncBlock \ {virtual}
@@ -91,8 +99,9 @@ ExitSynchronizedBlock(virtual) ==
     /\ UNCHANGED <<lockQueue, schedule>>
 
 
-Next == \/ \E v \in VirtualThreads, p \in CarrierThreads : Schedule(v, p)
-        \/ \E t \in VirtualThreads : \/ EnterSynchronizedBlock(t)
+Next == \/ \E v \in VirtualThreads, p \in CarrierThreads : Mount(v, p)
+        \/ \E t \in VirtualThreads : \/ ChooseToEnterSynchronizedBlock(t)
+                                     \/ EnterSynchronizedBlock(t)
                                      \/ ExitSynchronizedBlock(t)
         \/ \E t \in WorkThreads : \/ RequestLock(t)
                                   \/ AcquireLock(t)
