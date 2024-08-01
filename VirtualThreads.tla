@@ -10,7 +10,6 @@ NULL == CHOOSE x : x \notin CarrierThreads
 PlatformThreads == CarrierThreads \union FreePlatformThreads
 WorkThreads == VirtualThreads \union FreePlatformThreads
 
-
 VARIABLES lockQueue, 
           state, 
           schedule, 
@@ -35,16 +34,21 @@ Init == /\ lockQueue = <<>>
         /\ pinned = {} 
         /\ inSyncBlock = {}
         
+\* A thread has the lock if it's in one of the state that requires the lock
+HasTheLock(thread) == state[thread] \in {"locked", "cs", "to-exit-sync"}
 
 \* Mount a virtual thread to a carrier thread, bumping the other thread
 \* We can only do this when the carrier is not pinned, and when the virtual threads is not already pinned
 \* We need to unschedule the previous thread
 Mount(virtual, carrier) ==
-    LET prev == CHOOSE t \in VirtualThreads : schedule[t] = carrier
+    LET carrierInUse == \E t \in VirtualThreads : schedule[t] = carrier 
+         prev == CHOOSE t \in VirtualThreads : schedule[t] = carrier
     IN /\ carrier \notin pinned
        /\ \/ schedule[virtual] = NULL 
           \/ schedule[virtual] \notin pinned
-       /\ schedule' = IF \E t \in VirtualThreads : schedule[t] = carrier 
+       \* If a virtual thread has the lock already, then don't pre-empt it.
+       /\ carrierInUse => ~HasTheLock(prev)
+       /\ schedule' = IF carrierInUse
                       THEN [schedule EXCEPT ![virtual]=carrier, ![prev]=NULL]
                       ELSE [schedule EXCEPT ![virtual]=carrier]
        /\ UNCHANGED <<lockQueue, state, pinned, inSyncBlock>>
