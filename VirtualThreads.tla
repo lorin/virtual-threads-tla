@@ -1,14 +1,14 @@
----- MODULE VirtalThreads ----
+---- MODULE VirtualThreads ----
 EXTENDS TLC, Sequences
 
 CONSTANTS VirtualThreads,
           CarrierThreads,
-          OsWorkThreads
+          FreePlatformThreads
 
 NULL == CHOOSE x : x \notin CarrierThreads
 
-WorkThreads == VirtualThreads \union OsWorkThreads
-PlatformThreads == CarrierThreads \union OsWorkThreads
+PlatformThreads == CarrierThreads \union FreePlatformThreads
+WorkThreads == VirtualThreads \union FreePlatformThreads
 
 
 VARIABLES lockQueue, 
@@ -37,10 +37,10 @@ Init == /\ lockQueue = <<>>
         /\ inSyncBlock = {}
         
 
-\* Mount a virtual thread to a carrier thread, bumping the other thread
+\* Schedule a virtual thread to a carrier thread, bumping the other thread
 \* We can only do this when the carrier is not pinned, and when the virtual threads is not already pinned
 \* We need to unschedule the previous thread
-Mount(virtual, carrier) ==
+Schedule(virtual, carrier) ==
     LET prev == CHOOSE t \in VirtualThreads : schedule[t] = carrier
     IN /\ carrier \notin pinned
        /\ \/ schedule[virtual] = NULL 
@@ -91,7 +91,7 @@ ExitSynchronizedBlock(virtual) ==
     /\ UNCHANGED <<lockQueue, schedule>>
 
 
-Next == \/ \E v \in VirtualThreads, p \in CarrierThreads : Mount(v, p)
+Next == \/ \E v \in VirtualThreads, p \in CarrierThreads : Schedule(v, p)
         \/ \E t \in VirtualThreads : \/ EnterSynchronizedBlock(t)
                                      \/ ExitSynchronizedBlock(t)
         \/ \E t \in WorkThreads : \/ RequestLock(t)
