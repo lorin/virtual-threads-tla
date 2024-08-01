@@ -19,7 +19,7 @@ VARIABLES lockQueue,
 
 
 TypeOk == /\ lockQueue \in Seq(WorkThreads)
-          /\ state \in [WorkThreads -> {"ready", "to-enter-sync", "requested", "locked", "to-exit-sync"}]
+          /\ state \in [WorkThreads -> {"ready", "to-enter-sync", "requested", "locked", "cs", "to-exit-sync"}]
           /\ schedule \in [WorkThreads -> PlatformThreads \union {NULL}]
           /\ pinned \subseteq CarrierThreads
           /\ inSyncBlock \subseteq VirtualThreads
@@ -68,9 +68,21 @@ EnterSynchronizedBlock(virtual) ==
     /\ state' = [state EXCEPT ![virtual]="ready"]
     /\ UNCHANGED <<lockQueue, schedule>>
 
+
+\* Atomically request and acquire the lock
+\* This can only fire when thread holds the lock
+RequestAndAcquireLock(thread) == 
+    /\ state[thread] = "ready"
+    /\ IsScheduled(thread)
+    /\ lockQueue = <<>>
+    /\ lockQueue' = Append(lockQueue, thread)
+    /\ state' = [state EXCEPT ![thread]="locked"]
+    /\ UNCHANGED <<pinned, inSyncBlock, schedule>>
+
 RequestLock(thread) == 
     /\ state[thread] = "ready"
     /\ IsScheduled(thread)
+    /\ lockQueue # <<>>
     /\ lockQueue' = Append(lockQueue, thread)
     /\ state' = [state EXCEPT ![thread]="requested"]
     /\ UNCHANGED <<pinned, inSyncBlock, schedule>>
@@ -83,8 +95,13 @@ AcquireLock(thread) ==
     /\ UNCHANGED <<lockQueue, pinned, inSyncBlock, schedule>>
 
 
-ReleaseLock(thread) ==
+CriticalSection(thread) ==
     /\ state[thread] = "locked"
+    /\ state' = [state EXCEPT ![thread]="cs"]
+    /\ UNCHANGED <<lockQueue, pinned, inSyncBlock, schedule>>
+
+ReleaseLock(thread) ==
+    /\ state[thread] = "cs"
     /\ IsScheduled(thread)
     /\ lockQueue' = Tail(lockQueue)
     /\ state' = [state EXCEPT ![thread]=IF thread \in inSyncBlock THEN "to-exit-sync" ELSE "ready"]
@@ -105,7 +122,11 @@ Next == \/ \E v \in VirtualThreads, p \in CarrierThreads : Mount(v, p)
                                      \/ ExitSynchronizedBlock(t)
         \/ \E t \in WorkThreads : \/ RequestLock(t)
                                   \/ AcquireLock(t)
+                                  \/ RequestAndAcquireLock(t)
                                   \/ ReleaseLock(t)
 
+
+MutualExclusion ==
+    \A t1, t2 \in WorkThreads : (state[t1]="cs" /\ state[t2]="cs") => t1=t2
 
 ====
