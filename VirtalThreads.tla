@@ -5,6 +5,12 @@ CONSTANTS VirtualThreads,
           CarrierThreads,
           OsWorkThreads
 
+NULL == CHOOSE x : x \notin CarrierThreads
+
+WorkThreads == VirtualThreads \union OsWorkThreads
+PlatformThreads == CarrierThreads \union OsWorkThreads
+
+
 VARIABLES lockQueue, 
           state, 
           schedule, 
@@ -12,10 +18,13 @@ VARIABLES lockQueue,
           inSyncBlock
 
 
-WorkThreads == VirtualThreads \union OsWorkThreads
+TypeOk == /\ lockQueue \in Seq(WorkThreads)
+          /\ state \in [WorkThreads -> {"ready", "synced", "requested", "locked", "to-desync"}]
+          /\ schedule \in [WorkThreads -> PlatformThreads \union {NULL}]
+          /\ pinned \subseteq CarrierThreads
+          /\ inSyncBlock \subseteq VirtualThreads
 
 
-NULL == CHOOSE x : x \notin CarrierThreads
 
 IsScheduled(thread) == schedule[thread] # NULL
 
@@ -27,10 +36,6 @@ Init == /\ lockQueue = <<>>
         /\ pinned = {} 
         /\ inSyncBlock = {}
         
-TypeOk == /\ schedule \in Seq(WorkThreads)
-          /\ state \in [WorkThreads -> {"ready", "synced", "requested", "locked", "to-desync"}]
-          /\ pinned \subseteq CarrierThreads
-          /\ inSyncBlock \subseteq VirtualThreads
 
 \* Dispatch a virtual thread to a carrier thread, bumping the other thread
 \* We can only do this when the carrier is not pinned, and when the virtual threads is not already pinned
