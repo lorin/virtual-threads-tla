@@ -97,6 +97,7 @@ AcquireLock(thread) ==
 
 CriticalSection(thread) ==
     /\ state[thread] = "locked"
+    /\ IsScheduled(thread)
     /\ state' = [state EXCEPT ![thread]="cs"]
     /\ UNCHANGED <<lockQueue, pinned, inSyncBlock, schedule>>
 
@@ -117,12 +118,14 @@ ExitSynchronizedBlock(virtual) ==
 
 
 Next == \/ \E v \in VirtualThreads, p \in CarrierThreads : Mount(v, p)
-        \/ \E t \in VirtualThreads : \/ ChooseToEnterSynchronizedBlock(t)
+        \/ \E t \in VirtualThreads : 
+                                     \/ ChooseToEnterSynchronizedBlock(t)
                                      \/ EnterSynchronizedBlock(t)
                                      \/ ExitSynchronizedBlock(t)
         \/ \E t \in WorkThreads : \/ RequestLock(t)
                                   \/ AcquireLock(t)
                                   \/ RequestAndAcquireLock(t)
+                                  \/ CriticalSection(t)
                                   \/ ReleaseLock(t)
 
 
