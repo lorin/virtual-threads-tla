@@ -9,11 +9,16 @@ VARIABLES lockQueue,
           pinned, \* pinned OS threads in the pool
           inSyncBlock
 
+NumOsThreads == PoolSize + NumExtraOsThreads
+
 NumWorkThreads == NumVirtualThreads + NumExtraOsThreads
 
-VirtualThreads == 1..NumVirtualThreads
+NumThreads == PoolSize + NumVirtualThreads + NumExtraOsThreads
+
+VirtualThreads == (NumOsThreads+1)..NumThreads
 PoolThreads == 1..PoolSize
-WorkThreads == 1..NumWorkThreads
+OsWorkThreads == (PoolSize+1) .. NumOsThreads
+WorkThreads == VirtualThreads \union OsWorkThreads
 
 
 NULL == CHOOSE x : x \notin PoolThreads
@@ -28,6 +33,10 @@ Init == /\ lockQueue = <<>>
         /\ pinned = {} 
         /\ inSyncBlock = {}
         
+TypeOk == /\ schedule \in Seq(WorkThreads)
+          /\ state \in [WorkThreads -> {"ready", "synced", "requested", "locked", "to-desync"}]
+          /\ pinned \subseteq PoolThreads
+          /\ inSyncBlock \subseteq VirtualThreads
 
 \* Dispatch a virtual thread to a carrier thread, bumping the other thread
 \* We can only do this when the carrier is not pinned, and when the virtual threads is not already pinned
@@ -72,7 +81,7 @@ ReleaseLock(thread) ==
     /\ IsScheduled(thread)
     /\ lockQueue' = Tail(lockQueue)
     /\ state' = [state EXCEPT ![thread]=IF thread \in inSyncBlock THEN "to-desync" ELSE "ready"]
-    /\ UNCHANGED <<pinned>>
+    /\ UNCHANGED <<pinned, inSyncBlock, schedule>>
 
 ExitSynchronizedBlock(virtual) ==
     /\ state[virtual] = "to-desync"
@@ -80,7 +89,7 @@ ExitSynchronizedBlock(virtual) ==
     /\ pinned' = pinned \ {schedule[virtual]}
     /\ inSyncBlock' = inSyncBlock \ {virtual}
     /\ state' = [state EXCEPT ![virtual]="ready"]
-    /\ UNCHANGED <<lockQueue>>
+    /\ UNCHANGED <<lockQueue, schedule>>
 
 
 Next == \/ \E v \in VirtualThreads, p \in PoolThreads : Dispatch(v, p)
