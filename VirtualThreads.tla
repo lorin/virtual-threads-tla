@@ -1,11 +1,10 @@
 ---- MODULE VirtualThreads ----
-EXTENDS TLC, Sequences
+EXTENDS Sequences
 
 CONSTANTS VirtualThreads,
           CarrierThreads,
           FreePlatformThreads
 
-NULL == CHOOSE x : x \notin CarrierThreads
 
 PlatformThreads == CarrierThreads \union FreePlatformThreads
 WorkThreads == VirtualThreads \union FreePlatformThreads
@@ -16,9 +15,10 @@ VARIABLES lockQueue,
           pinned, \* pinned OS threads in the pool
           inSyncBlock
 
+NULL == CHOOSE x : x \notin PlatformThreads
 
 TypeOk == /\ lockQueue \in Seq(WorkThreads)
-          /\ state \in [WorkThreads -> {"ready", "to-enter-sync", "requested", "locked", "cs", "to-exit-sync"}]
+          /\ state \in [WorkThreads -> {"ready", "to-enter-sync", "requested", "locked", "in-critical-section", "to-exit-sync", "done"}]
           /\ schedule \in [WorkThreads -> PlatformThreads \union {NULL}]
           /\ pinned \subseteq CarrierThreads
           /\ inSyncBlock \subseteq VirtualThreads
@@ -102,14 +102,14 @@ AcquireLock(thread) ==
 CriticalSection(thread) ==
     /\ state[thread] = "locked"
     /\ IsScheduled(thread)
-    /\ state' = [state EXCEPT ![thread]="cs"]
+    /\ state' = [state EXCEPT ![thread]="in-critical-section"]
     /\ UNCHANGED <<lockQueue, pinned, inSyncBlock, schedule>>
 
 ReleaseLock(thread) ==
-    /\ state[thread] = "cs"
+    /\ state[thread] = "in-critical-section"
     /\ IsScheduled(thread)
     /\ lockQueue' = Tail(lockQueue)
-    /\ state' = [state EXCEPT ![thread]=IF thread \in inSyncBlock THEN "to-exit-sync" ELSE "ready"]
+    /\ state' = [state EXCEPT ![thread]=IF thread \in inSyncBlock THEN "to-exit-sync" ELSE "done"]
     /\ UNCHANGED <<pinned, inSyncBlock, schedule>>
 
 ExitSynchronizedBlock(virtual) ==
@@ -117,15 +117,14 @@ ExitSynchronizedBlock(virtual) ==
     /\ IsScheduled(virtual)
     /\ pinned' = pinned \ {schedule[virtual]}
     /\ inSyncBlock' = inSyncBlock \ {virtual}
-    /\ state' = [state EXCEPT ![virtual]="ready"]
+    /\ state' = [state EXCEPT ![virtual]="done"]
     /\ UNCHANGED <<lockQueue, schedule>>
 
 
-Next == \/ \E v \in VirtualThreads, p \in CarrierThreads : Mount(v, p)
-        \/ \E t \in VirtualThreads : 
-                                     \/ ChooseToEnterSynchronizedBlock(t)
+Next == \/ \E t \in VirtualThreads : \/ ChooseToEnterSynchronizedBlock(t)
                                      \/ EnterSynchronizedBlock(t)
                                      \/ ExitSynchronizedBlock(t)
+                                     \/ \E p \in CarrierThreads : Mount(t, p)
         \/ \E t \in WorkThreads : \/ RequestLock(t)
                                   \/ AcquireLock(t)
                                   \/ RequestAndAcquireLock(t)
