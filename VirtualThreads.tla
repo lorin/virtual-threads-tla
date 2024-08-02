@@ -9,19 +9,19 @@ CONSTANTS VirtualThreads,
 PlatformThreads == CarrierThreads \union FreePlatformThreads
 WorkThreads == VirtualThreads \union FreePlatformThreads
 
-VARIABLES lockQueue, 
-          state, 
-          schedule, 
-          pinned, \* pinned OS threads in the pool
-          inSyncBlock
+VARIABLES pc,
+          schedule,
+          inSyncBlock,
+          pinned,
+          lockQueue
 
 NULL == CHOOSE x : x \notin PlatformThreads
 
-TypeOk == /\ lockQueue \in Seq(WorkThreads)
-          /\ state \in [WorkThreads -> {"ready", "to-enter-sync", "requested", "locked", "in-critical-section", "to-exit-sync", "done"}]
+TypeOk == /\ pc \in [WorkThreads -> {"ready", "to-enter-sync", "requested", "locked", "in-critical-section", "to-exit-sync", "done"}]
           /\ schedule \in [WorkThreads -> PlatformThreads \union {NULL}]
-          /\ pinned \subseteq CarrierThreads
           /\ inSyncBlock \subseteq VirtualThreads
+          /\ pinned \subseteq CarrierThreads
+          /\ lockQueue \in Seq(WorkThreads)
 
 
 IsScheduled(thread) == schedule[thread] # NULL
@@ -30,94 +30,94 @@ IsScheduled(thread) == schedule[thread] # NULL
 Init == /\ lockQueue = <<>>
            \* virutal threads are initially unscheduled, OS threads are scheduled to themselves
         /\ schedule = [t \in WorkThreads |-> IF t \in VirtualThreads THEN NULL ELSE t]
-        /\ state = [t \in WorkThreads |-> "ready"]
-        /\ pinned = {} 
+        /\ pc = [t \in WorkThreads |-> "ready"]
+        /\ pinned = {}
         /\ inSyncBlock = {}
-        
-\* A thread has the lock if it's in one of the state that requires the lock
-HasTheLock(thread) == state[thread] \in {"locked", "cs", "to-exit-sync"}
+
+\* A thread has the lock if it's in one of the pc that requires the lock
+HasTheLock(thread) == pc[thread] \in {"locked", "in-critical-section"}
 
 \* Mount a virtual thread to a carrier thread, bumping the other thread
 \* We can only do this when the carrier is not pinned, and when the virtual threads is not already pinned
 \* We need to unschedule the previous thread
 Mount(virtual, carrier) ==
-    LET carrierInUse == \E t \in VirtualThreads : schedule[t] = carrier 
+    LET carrierInUse == \E t \in VirtualThreads : schedule[t] = carrier
          prev == CHOOSE t \in VirtualThreads : schedule[t] = carrier
     IN /\ carrier \notin pinned
-       /\ \/ schedule[virtual] = NULL 
+       /\ \/ schedule[virtual] = NULL
           \/ schedule[virtual] \notin pinned
        \* If a virtual thread has the lock already, then don't pre-empt it.
        /\ carrierInUse => ~HasTheLock(prev)
        /\ schedule' = IF carrierInUse
                       THEN [schedule EXCEPT ![virtual]=carrier, ![prev]=NULL]
                       ELSE [schedule EXCEPT ![virtual]=carrier]
-       /\ UNCHANGED <<lockQueue, state, pinned, inSyncBlock>>
+       /\ UNCHANGED <<lockQueue, pc, pinned, inSyncBlock>>
 
 
 \* When this fires, virtual thread enters a synchronized block
 ChooseToEnterSynchronizedBlock(virtual) ==
-    /\ state[virtual] = "ready"
+    /\ pc[virtual] = "ready"
     /\ IsScheduled(virtual)
     /\ virtual \notin inSyncBlock
-    /\ state' = [state EXCEPT ![virtual]="to-enter-sync"]
+    /\ pc' = [pc EXCEPT ![virtual]="to-enter-sync"]
     /\ UNCHANGED <<lockQueue, schedule, pinned, inSyncBlock>>
 
 
 \* We only care about virtual threads entering synchronized blocks
 EnterSynchronizedBlock(virtual) ==
-    /\ state[virtual] = "to-enter-sync"
+    /\ pc[virtual] = "to-enter-sync"
     /\ IsScheduled(virtual)
     /\ pinned' = pinned \union {schedule[virtual]}
     /\ inSyncBlock' = inSyncBlock \union {virtual}
-    /\ state' = [state EXCEPT ![virtual]="ready"]
+    /\ pc' = [pc EXCEPT ![virtual]="ready"]
     /\ UNCHANGED <<lockQueue, schedule>>
 
 
 \* Atomically request and acquire the lock
 \* This can only fire when thread holds the lock
-RequestAndAcquireLock(thread) == 
-    /\ state[thread] = "ready"
+RequestAndAcquireLock(thread) ==
+    /\ pc[thread] = "ready"
     /\ IsScheduled(thread)
     /\ lockQueue = <<>>
     /\ lockQueue' = Append(lockQueue, thread)
-    /\ state' = [state EXCEPT ![thread]="locked"]
+    /\ pc' = [pc EXCEPT ![thread]="locked"]
     /\ UNCHANGED <<pinned, inSyncBlock, schedule>>
 
-RequestLock(thread) == 
-    /\ state[thread] = "ready"
+RequestLock(thread) ==
+    /\ pc[thread] = "ready"
     /\ IsScheduled(thread)
     /\ lockQueue # <<>>
     /\ lockQueue' = Append(lockQueue, thread)
-    /\ state' = [state EXCEPT ![thread]="requested"]
+    /\ pc' = [pc EXCEPT ![thread]="requested"]
     /\ UNCHANGED <<pinned, inSyncBlock, schedule>>
 
 AcquireLock(thread) ==
-    /\ state[thread] = "requested"
+    /\ pc[thread] = "requested"
     /\ IsScheduled(thread)
     /\ Head(lockQueue) = thread
-    /\ state' = [state EXCEPT ![thread]="locked"]
+    /\ pc' = [pc EXCEPT ![thread]="locked"]
     /\ UNCHANGED <<lockQueue, pinned, inSyncBlock, schedule>>
 
 
 CriticalSection(thread) ==
-    /\ state[thread] = "locked"
+    /\ pc[thread] = "locked"
     /\ IsScheduled(thread)
-    /\ state' = [state EXCEPT ![thread]="in-critical-section"]
+    /\ pc' = [pc EXCEPT ![thread]="in-critical-section"]
     /\ UNCHANGED <<lockQueue, pinned, inSyncBlock, schedule>>
 
 ReleaseLock(thread) ==
-    /\ state[thread] = "in-critical-section"
+    /\ pc[thread] = "in-critical-section"
     /\ IsScheduled(thread)
     /\ lockQueue' = Tail(lockQueue)
-    /\ state' = [state EXCEPT ![thread]=IF thread \in inSyncBlock THEN "to-exit-sync" ELSE "done"]
+    /\ pc' = [pc EXCEPT ![thread]=IF thread \in inSyncBlock THEN "to-exit-sync" ELSE "done"]
     /\ UNCHANGED <<pinned, inSyncBlock, schedule>>
 
 ExitSynchronizedBlock(virtual) ==
-    /\ state[virtual] = "to-exit-sync"
+    /\ pc[virtual] = "to-exit-sync"
     /\ IsScheduled(virtual)
     /\ pinned' = pinned \ {schedule[virtual]}
     /\ inSyncBlock' = inSyncBlock \ {virtual}
-    /\ state' = [state EXCEPT ![virtual]="done"]
+    /\ pc' = [pc EXCEPT ![virtual]="done"]
     /\ UNCHANGED <<lockQueue, schedule>>
 
 
@@ -131,8 +131,18 @@ Next == \/ \E t \in VirtualThreads : \/ ChooseToEnterSynchronizedBlock(t)
                                   \/ CriticalSection(t)
                                   \/ ReleaseLock(t)
 
+PlatformThreadsAreSelfScheduled ==
+    \A t \in FreePlatformThreads : schedule[t] = t
+
+VirtualThreadsCantShareCarriers ==
+    \A v1,v2 \in VirtualThreads : \/ schedule[v1] = NULL
+                                  \/ schedule[v2] = NULL
+                                  \/ (schedule[v1] = schedule[v2]) => v1=v2
+
+HeadHasTheLock ==
+    \A t \in WorkThreads : HasTheLock(t) => t = Head(lockQueue)
 
 MutualExclusion ==
-    \A t1, t2 \in WorkThreads : (state[t1]="cs" /\ state[t2]="cs") => t1=t2
+    \A t1, t2 \in WorkThreads : (pc[t1]="in-critical-section" /\ pc[t2]="in-critical-section") => t1=t2
 
 ====
