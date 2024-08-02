@@ -74,7 +74,7 @@ EnterSynchronizedBlock(virtual) ==
 
 
 \* Atomically request and acquire the lock
-\* This can only fire when thread holds the lock
+\* This can only fire when no other thread currently holds the lock
 RequestAndAcquireLock(thread) ==
     /\ pc[thread] = "ready"
     /\ IsScheduled(thread)
